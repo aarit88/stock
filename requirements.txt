@@ -1,8 +1,5 @@
-gunicorn==21.2.0
-streamlit==1.31.0
-Flask==3.0.0
-Werkzeug==3.0.1
-yfinance==0.2.36
-Flask-Mail==0.9.1
-pandas==2.1.4
-numpy==1.26.4
+streamlit
+pandas
+yfinance
+Werkzeug
+numpy
