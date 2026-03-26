@@ -60,9 +60,8 @@ app.config['MAIL_PASSWORD'] = 'eckm zhbz hbnm pkvi'
 
 mail = Mail(app)
 
-# In-memory user storage (for demonstration)
+# In-memory user storage (now persisted via load_users() above)
 # Format: {username: {'hash': hashed_password, 'email': user_email, 'phone': user_phone, 'verified': True/False, 'help_queries': []}}
-users = {}
 
 # Stock options for the main dashboard dropdown (Zomato removed)
 STOCK_OPTIONS = {
@@ -669,8 +668,10 @@ def get_stock_data():
         })
 
     except Exception as e:
+        import traceback
         print(f"Error fetching stock data: {e}")
-        return jsonify({"success": False, "message": f"An error occurred while fetching data for {ticker_symbol}. The ticker may be invalid or the API is down."}), 500
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"An error occurred while fetching data for {ticker_symbol}. Details: {str(e)}"}), 500
 
 
 # --- *** MODIFIED: Trading Panel Logic *** ---
@@ -1024,8 +1025,10 @@ def scrape_news():
         return jsonify({"success": True, "news": formatted_news})
 
     except Exception as e:
-        print(f"Error scraping news (outer try): {e}")
-        return jsonify({"success": False, "message": f"An error occurred while fetching news. The ticker may be invalid or the API is down."}), 500
+        import traceback
+        print(f"Error scraping news: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"An error occurred while fetching news. Details: {str(e)}"}), 500
 
 
 if __name__ == '__main__':
