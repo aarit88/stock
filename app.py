@@ -237,109 +237,124 @@ def safe_get(info, key, default='N/A'):
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if 'username' in session and users.get(session['username'], {}).get('verified', False):
-        return redirect(url_for('dashboard_home'))
-
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        user = users.get(username)
-
-        if user and check_password_hash(user['hash'], password):
-            if user['verified']:
-                session['username'] = username
-                return redirect(url_for('dashboard_home'))
+    try:
+        if 'username' in session and users.get(session['username'], {}).get('verified', False):
+            return redirect(url_for('dashboard_home'))
+    
+        if request.method == 'POST':
+            username = request.form['username']
+            password = request.form['password']
+            user = users.get(username)
+    
+            if user and check_password_hash(user['hash'], password):
+                if user['verified']:
+                    session['username'] = username
+                    return redirect(url_for('dashboard_home'))
+                else:
+                    # User exists but is not verified
+                    session['username'] = username # Store temp session
+                    return redirect(url_for('otp_verification'))
             else:
-                # User exists but is not verified
-                session['username'] = username # Store temp session
-                return redirect(url_for('otp_verification'))
-        else:
-            return render_template('login.html', error='Invalid username or password')
-    return render_template('login.html')
+                return render_template('login.html', error='Invalid username or password')
+        return render_template('login.html')
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"Internal Server Error (Login): {str(e)}", 500
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
-    if 'username' in session and users.get(session['username'], {}).get('verified', False):
-        return redirect(url_for('dashboard_home'))
-
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        email = request.form['email']
-        mobile = request.form.get('mobile', 'N/A')
-
-        if username in users:
-            return render_template('signup.html', error='Username already exists')
-
-        otp = generate_otp()
-        otp_expiry = datetime.now() + timedelta(minutes=5)
-        
-        users[username] = {
-            'hash': generate_password_hash(password),
-            'email': email,
-            'phone': mobile,
-            'otp': otp,
-            'otp_expiry': otp_expiry, # Store expiry
-            'verified': False,
-            'help_queries': []
-        }
-        
-        if not send_otp_email(email, otp):
-            users.pop(username) # Cleanup if email fails
-            return render_template('signup.html', error='Failed to send verification email. Please check your email settings or try again later.')
-
-        save_users() # Save new user (unverified)
-        session['username'] = username # Store temp session for verification
-        return redirect(url_for('otp_verification'))
-    return render_template('signup.html')
+    try:
+        if 'username' in session and users.get(session['username'], {}).get('verified', False):
+            return redirect(url_for('dashboard_home'))
+    
+        if request.method == 'POST':
+            username = request.form['username']
+            password = request.form['password']
+            email = request.form['email']
+            mobile = request.form.get('mobile', 'N/A')
+    
+            if username in users:
+                return render_template('signup.html', error='Username already exists')
+    
+            otp = generate_otp()
+            otp_expiry = datetime.now() + timedelta(minutes=5)
+            
+            users[username] = {
+                'hash': generate_password_hash(password),
+                'email': email,
+                'phone': mobile,
+                'otp': otp,
+                'otp_expiry': otp_expiry, # Store expiry
+                'verified': False,
+                'help_queries': []
+            }
+            
+            if not send_otp_email(email, otp):
+                users.pop(username) # Cleanup if email fails
+                return render_template('signup.html', error='Failed to send verification email. Please check your email settings or try again later.')
+    
+            save_users() # Save new user (unverified)
+            session['username'] = username # Store temp session for verification
+            return redirect(url_for('otp_verification'))
+        return render_template('signup.html')
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"Internal Server Error (Signup): {str(e)}", 500
 
 @app.route('/otp_verification', methods=['GET', 'POST'])
 def otp_verification():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    
-    username = session['username']
-    user_data = users.get(username)
-
-    if not user_data:
-        return redirect(url_for('signup'))
-        
-    if user_data['verified']:
-        return redirect(url_for('dashboard_home'))
-
-    if request.method == 'POST':
-        otp = request.form['otp']
-        
-        if 'otp_expiry' not in user_data or datetime.now() > user_data['otp_expiry']:
-            # Regenerate OTP and resend
-            new_otp = generate_otp()
-            user_data['otp'] = new_otp
-            user_data['otp_expiry'] = datetime.now() + timedelta(minutes=5)
-            send_otp_email(user_data['email'], new_otp)
-            return render_template('otp_verification.html', error='OTP expired. A new OTP has been sent.', target_email=user_data['email'], target_mobile=user_data['phone'])
-
-        if otp == user_data['otp']:
-            user_data['verified'] = True
-            user_data.pop('otp', None) # Clear OTP data
-            user_data.pop('otp_expiry', None)
-            
-            save_users() # Save verified status
-
-            # --- MODIFIED: Initialize full mock account ---
-            session['mock_cash'] = 100000.00
-            session['mock_portfolio'] = []
-            session['transaction_history'] = [] 
-            
-            flash('Account verified successfully! You can now log in.', 'success')
+    try:
+        if 'username' not in session:
             return redirect(url_for('login'))
-        else:
-            return render_template('otp_verification.html', error='Invalid OTP. Please try again.', target_email=user_data['email'], target_mobile=user_data['phone'])
-
-    return render_template(
-        'otp_verification.html', 
-        target_email=user_data['email'], 
-        target_mobile=user_data['phone']
-    )
+        
+        username = session['username']
+        user_data = users.get(username)
+    
+        if not user_data:
+            return redirect(url_for('signup'))
+            
+        if user_data.get('verified'):
+            return redirect(url_for('dashboard_home'))
+    
+        if request.method == 'POST':
+            otp = request.form['otp']
+            
+            if 'otp_expiry' not in user_data or datetime.now() > user_data['otp_expiry']:
+                # Regenerate OTP and resend
+                new_otp = generate_otp()
+                user_data['otp'] = new_otp
+                user_data['otp_expiry'] = datetime.now() + timedelta(minutes=5)
+                send_otp_email(user_data['email'], new_otp)
+                return render_template('otp_verification.html', error='OTP expired. A new OTP has been sent.', target_email=user_data['email'], target_mobile=user_data['phone'])
+    
+            if otp == user_data['otp']:
+                user_data['verified'] = True
+                user_data.pop('otp', None) # Clear OTP data
+                user_data.pop('otp_expiry', None)
+                
+                save_users() # Save verified status
+    
+                # --- MODIFIED: Initialize full mock account ---
+                session['mock_cash'] = 100000.00
+                session['mock_portfolio'] = []
+                session['transaction_history'] = [] 
+                
+                flash('Account verified successfully! You can now log in.', 'success')
+                return redirect(url_for('login'))
+            else:
+                return render_template('otp_verification.html', error='Invalid OTP. Please try again.', target_email=user_data['email'], target_mobile=user_data['phone'])
+    
+        return render_template(
+            'otp_verification.html', 
+            target_email=user_data['email'], 
+            target_mobile=user_data['phone']
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"Internal Server Error (OTP): {str(e)}", 500
 
 @app.route('/logout')
 def logout():
@@ -356,21 +371,31 @@ def logout():
 @app.route('/')
 @login_required
 def dashboard_home():
-    return render_template(
-        'dashboard_home.html', 
-        user=session['username'], 
-        active_page='home'
-    )
+    try:
+        return render_template(
+            'dashboard_home.html', 
+            user=session['username'], 
+            active_page='home'
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"Internal Server Error (Home): {str(e)}", 500
 
 @app.route('/main_dashboard')
 @login_required
 def main_dashboard():
-    return render_template(
-        'main_dashboard.html', 
-        user=session['username'], 
-        active_page='main', 
-        stock_options=STOCK_OPTIONS
-    )
+    try:
+        return render_template(
+            'main_dashboard.html', 
+            user=session['username'], 
+            active_page='main', 
+            stock_options=STOCK_OPTIONS
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"Internal Server Error (Main Analytics): {str(e)}", 500
 
 # --- MODIFIED: Trading Dashboard (GET) ---
 @app.route('/trading_dashboard')
