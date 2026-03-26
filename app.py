@@ -10,12 +10,46 @@ from datetime import datetime, timedelta
 import time
 # --- NEW IMPORT FOR PANDAS (FIXES THE ERROR) ---
 import pandas as pd
+import json
+import os
 
 # --- Configuration and Initialization ---
 app = Flask(__name__)
 app.secret_key = "super_secret_stock_key"
 
-# --- FLASK-MAIL CONFIGURATION (YOU MUST REPLACE THESE VALUES) ---
+USER_DATA_FILE = 'users.json'
+
+def load_users():
+    if os.path.exists(USER_DATA_FILE):
+        try:
+            with open(USER_DATA_FILE, 'r') as f:
+                data = json.load(f)
+                # Convert string timestamps back to datetime objects
+                for username, user_info in data.items():
+                    if 'otp_expiry' in user_info and user_info['otp_expiry']:
+                         user_info['otp_expiry'] = datetime.fromisoformat(user_info['otp_expiry'])
+                return data
+        except Exception as e:
+            print(f"Error loading users: {e}")
+    return {}
+
+def save_users():
+    try:
+        # Create a copy to avoid modifying the original during serialization
+        data_to_save = {}
+        for username, user_info in users.items():
+            user_copy = user_info.copy()
+            if 'otp_expiry' in user_copy and isinstance(user_copy['otp_expiry'], datetime):
+                user_copy['otp_expiry'] = user_copy['otp_expiry'].isoformat()
+            data_to_save[username] = user_copy
+            
+        with open(USER_DATA_FILE, 'w') as f:
+            json.dump(data_to_save, f, indent=4)
+    except Exception as e:
+        print(f"Error saving users: {e}")
+
+# In-memory user storage (now persisted)
+users = load_users()
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
@@ -137,7 +171,18 @@ def login_required(f):
         if 'username' not in session:
             flash('Please log in to access this page.', 'danger')
             return redirect(url_for('login'))
-        if not users.get(session['username'], {}).get('verified', False):
+        
+        username = session['username']
+        user_info = users.get(username)
+        
+        if not user_info:
+             # Case where session exists but app restarted and user not in persisting store (rare now)
+             # or session is invalid.
+             session.pop('username', None)
+             flash('User session expired. Please log in again.', 'warning')
+             return redirect(url_for('login'))
+
+        if not user_info.get('verified', False):
             flash('Please verify your account via OTP to access this page.', 'danger')
             return redirect(url_for('otp_verification'))
         return f(*args, **kwargs)
@@ -244,6 +289,7 @@ def signup():
             users.pop(username) # Cleanup if email fails
             return render_template('signup.html', error='Failed to send verification email. Please check your email settings or try again later.')
 
+        save_users() # Save new user (unverified)
         session['username'] = username # Store temp session for verification
         return redirect(url_for('otp_verification'))
     return render_template('signup.html')
@@ -278,6 +324,8 @@ def otp_verification():
             user_data.pop('otp', None) # Clear OTP data
             user_data.pop('otp_expiry', None)
             
+            save_users() # Save verified status
+
             # --- MODIFIED: Initialize full mock account ---
             session['mock_cash'] = 100000.00
             session['mock_portfolio'] = []
@@ -392,6 +440,7 @@ def help_dashboard():
             
             # 2. Store the query in our "database"
             user_data['help_queries'].insert(0, new_query)
+            save_users() # Persistent support tickets
             
             # 3. Send the email to the new admin address
             try:
@@ -453,6 +502,7 @@ def admin_panel():
             for query in users[username_to_update]['help_queries']:
                 if query['id'] == ticket_id:
                     query['response'] = response_text
+                    save_users() # Persistent admin response
                     
                     user_email_to_notify = query['email']
                     user_name = query['name']
@@ -557,22 +607,39 @@ def get_stock_data():
         
         info = stock.info
         
-        current_price = safe_get(info, 'currentPrice', hist['Close'].iloc[-1])
-        previous_close = safe_get(info, 'previousClose', hist['Close'].iloc[-2] if len(hist) > 1 else 'N/A')
+        # Safely get prices and ensure they are numbers
+        try:
+            current_price = safe_get(info, 'currentPrice', hist['Close'].iloc[-1])
+            if pd.isna(current_price):
+                 current_price = hist['Close'].iloc[-1]
+            
+            previous_close = safe_get(info, 'previousClose', hist['Close'].iloc[-2] if len(hist) > 1 else 'N/A')
+            if pd.isna(previous_close) and len(hist) > 1:
+                previous_close = hist['Close'].iloc[-2]
+        except Exception:
+            current_price = 'N/A'
+            previous_close = 'N/A'
         
-        change = (current_price - previous_close) if isinstance(current_price, (int, float)) and isinstance(previous_close, (int, float)) else 'N/A'
-        change_pct = (change / previous_close * 100) if isinstance(change, (int, float)) and change != 0 and isinstance(previous_close, (int, float)) and previous_close != 0 else 'N/A'
+        # Robust change calculation
+        try:
+            current_price_f = float(current_price)
+            previous_close_f = float(previous_close)
+            change = current_price_f - previous_close_f
+            change_pct = (change / previous_close_f * 100) if previous_close_f != 0 else 0
+        except (ValueError, TypeError):
+            change = 'N/A'
+            change_pct = 'N/A'
         
         market_intelligence = {
-            "Current Price": f"₹{current_price:,.2f}" if isinstance(current_price, (int, float)) else 'N/A',
-            "Change": f"₹{change:,.2f}" if isinstance(change, (int, float)) else 'N/A',
-            "Change %": f"{change_pct:,.2f}%" if isinstance(change_pct, (int, float)) else 'N/A',
-            "Day High": f"₹{safe_get(info, 'dayHigh'):,.2f}" if isinstance(safe_get(info, 'dayHigh'), (int, float)) else 'N/A',
-            "Day Low": f"₹{safe_get(info, 'dayLow'):,.2f}" if isinstance(safe_get(info, 'dayLow'), (int, float)) else 'N/A',
-            "52 Week High": f"₹{safe_get(info, 'fiftyTwoWeekHigh'):,.2f}" if isinstance(safe_get(info, 'fiftyTwoWeekHigh'), (int, float)) else 'N/A',
-            "52 Week Low": f"₹{safe_get(info, 'fiftyTwoWeekLow'):,.2f}" if isinstance(safe_get(info, 'fiftyTwoWeekLow'), (int, float)) else 'N/A',
-            "Volume": f"{safe_get(info, 'regularMarketVolume'):,}" if isinstance(safe_get(info, 'regularMarketVolume'), (int, float)) else 'N/A',
-            "Previous Close": f"₹{previous_close:,.2f}" if isinstance(previous_close, (int, float)) else 'N/A'
+            "Current Price": f"₹{current_price:,.2f}" if isinstance(current_price, (int, float)) and not pd.isna(current_price) else (f"₹{current_price}" if current_price != 'N/A' else 'N/A'),
+            "Change": f"₹{change:,.2f}" if isinstance(change, (int, float)) and not pd.isna(change) else 'N/A',
+            "Change %": f"{change_pct:,.2f}%" if isinstance(change_pct, (int, float)) and not pd.isna(change_pct) else 'N/A',
+            "Day High": f"₹{safe_get(info, 'dayHigh'):,.2f}" if isinstance(safe_get(info, 'dayHigh'), (int, float)) and not pd.isna(safe_get(info, 'dayHigh')) else 'N/A',
+            "Day Low": f"₹{safe_get(info, 'dayLow'):,.2f}" if isinstance(safe_get(info, 'dayLow'), (int, float)) and not pd.isna(safe_get(info, 'dayLow')) else 'N/A',
+            "52 Week High": f"₹{safe_get(info, 'fiftyTwoWeekHigh'):,.2f}" if isinstance(safe_get(info, 'fiftyTwoWeekHigh'), (int, float)) and not pd.isna(safe_get(info, 'fiftyTwoWeekHigh')) else 'N/A',
+            "52 Week Low": f"₹{safe_get(info, 'fiftyTwoWeekLow'):,.2f}" if isinstance(safe_get(info, 'fiftyTwoWeekLow'), (int, float)) and not pd.isna(safe_get(info, 'fiftyTwoWeekLow')) else 'N/A',
+            "Volume": f"{safe_get(info, 'regularMarketVolume'):,}" if isinstance(safe_get(info, 'regularMarketVolume'), (int, float)) and not pd.isna(safe_get(info, 'regularMarketVolume')) else 'N/A',
+            "Previous Close": f"₹{previous_close:,.2f}" if isinstance(previous_close, (int, float)) and not pd.isna(previous_close) else 'N/A'
         }
 
         fundamental_data = {
@@ -655,9 +722,19 @@ def update_mock_prices(portfolio):
         # Update portfolio with new prices AND recalculate G/L
         for item in portfolio:
             if item['symbol'] in prices:
-                item['current'] = prices[item['symbol']]
+                new_price = prices[item['symbol']]
+                if not pd.isna(new_price):
+                    item['current'] = float(new_price)
+                    
                 # The G/L is now calculated HERE, based on live price vs avg cost
-                item['gain_loss'] = (item['current'] - item.get('cost', 0)) * item.get('shares', 0)
+                # Safely handle potential non-numeric data
+                try:
+                    curr = float(item.get('current', 0))
+                    cost = float(item.get('cost', 0))
+                    shares = int(item.get('shares', 0))
+                    item['gain_loss'] = (curr - cost) * shares
+                except (ValueError, TypeError):
+                    item['gain_loss'] = 0.0
 
     except Exception as e:
         print(f"Error updating mock prices: {e}")
