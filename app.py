@@ -15,7 +15,7 @@ import os
 
 # --- Configuration and Initialization ---
 app = Flask(__name__)
-app.secret_key = "super_secret_stock_key"
+app.secret_key = os.environ.get('SECRET_KEY', 'super_secret_stock_key')
 
 USER_DATA_FILE = 'users.json'
 
@@ -1061,6 +1061,20 @@ def scrape_news():
         return jsonify({"success": False, "message": f"An error occurred while fetching news. Details: {str(e)}"}), 500
 
 
+# --- Global Error Handler ---
+@app.errorhandler(500)
+def internal_error(error):
+    import traceback
+    traceback.print_exc()
+    return f"<h1>Internal Server Error</h1><pre>{str(error)}</pre>", 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    traceback.print_exc()
+    return f"<h1>Server Error</h1><pre>{str(e)}</pre>", 500
+
+
 if __name__ == '__main__':
     # Initialize mock data for a test user if it doesn't exist
     if 'testuser' not in users:
@@ -1092,4 +1106,4 @@ if __name__ == '__main__':
             'transaction_history': [] 
         }
         
-    app.run(debug=True)
+    app.run(debug=True)

@@ -4,12 +4,14 @@ services:
     name: stockscraper-flask
     env: python
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn app:app"
+    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT"
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.0
       - key: FLASK_ENV
         value: production
+      - key: SECRET_KEY
+        generateValue: true
 
   # Deployment for the Streamlit Application (streamlit_app.py)
   - type: web
