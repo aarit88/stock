@@ -3,3 +3,6 @@ pandas
 yfinance
 Werkzeug
 numpy
+Flask
+Flask-Mail
+gunicorn
