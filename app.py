@@ -890,46 +890,51 @@ def execute_trade_logic(symbol, quantity, action, trade_type, use_margin, broker
 @app.route('/execute_trade', methods=['POST'])
 @login_required
 def execute_trade():
-    data = request.get_json()
-    symbol = data.get('symbol', '').upper()
-    
-    if not symbol:
-        flash("Ticker symbol is required.", 'danger')
-        return jsonify({"success": False, "message": "Ticker symbol is required."})
-        
     try:
-        quantity = int(data.get('quantity', 0))
-        if quantity <= 0:
-            raise ValueError()
-    except (ValueError, TypeError):
-        flash("Quantity must be a positive whole number.", 'danger')
-        return jsonify({"success": False, "message": "Quantity must be a positive whole number."})
+        data = request.get_json()
+        symbol = data.get('symbol', '').upper()
         
-    action = data.get('action')
-    if action not in ['buy', 'sell']:
-        flash("Invalid action.", 'danger')
-        return jsonify({"success": False, "message": "Invalid action."})
-
-    # --- NEW: Get form data ---
-    trade_type = data.get('trade_type', 'delivery')
-    use_margin = data.get('use_margin', False)
-    broker = data.get('broker', 'groww') # Default to groww
-
-    # Pass to logic function
-    if execute_trade_logic(symbol, quantity, action, trade_type, use_margin, broker):
-        portfolio = session['mock_portfolio']
-        cash = session['mock_cash']
-        shares = 0
-        for item in portfolio:
-            if item['symbol'] == symbol:
-                shares = item['shares']
-                break
-        
-        return jsonify({"success": True, "message": "Trade executed.", "cash": cash, "shares": shares})
-    else:
-        messages = [msg[1] for msg in get_flashed_messages(with_categories=True)]
-        flash_message = messages[-1] if messages else "Trade failed due to an unknown error."
-        return jsonify({"success": False, "message": flash_message})
+        if not symbol:
+            flash("Ticker symbol is required.", 'danger')
+            return jsonify({"success": False, "message": "Ticker symbol is required."})
+            
+        try:
+            quantity = int(data.get('quantity', 0))
+            if quantity <= 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            flash("Quantity must be a positive whole number.", 'danger')
+            return jsonify({"success": False, "message": "Quantity must be a positive whole number."})
+            
+        action = data.get('action')
+        if action not in ['buy', 'sell']:
+            flash("Invalid action.", 'danger')
+            return jsonify({"success": False, "message": "Invalid action."})
+    
+        # --- NEW: Get form data ---
+        trade_type = data.get('trade_type', 'delivery')
+        use_margin = data.get('use_margin', False)
+        broker = data.get('broker', 'groww') # Default to groww
+    
+        # Pass to logic function
+        if execute_trade_logic(symbol, quantity, action, trade_type, use_margin, broker):
+            portfolio = session['mock_portfolio']
+            cash = session['mock_cash']
+            shares = 0
+            for item in portfolio:
+                if item['symbol'] == symbol:
+                    shares = item['shares']
+                    break
+            
+            return jsonify({"success": True, "message": "Trade executed.", "cash": cash, "shares": shares})
+        else:
+            messages = [msg[1] for msg in get_flashed_messages(with_categories=True)]
+            flash_message = messages[-1] if messages else "Trade failed due to an unknown error."
+            return jsonify({"success": False, "message": flash_message})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"Internal Server Error during trade execution: {str(e)}"}), 500
 
 
 # --- Helper Functions for Scraper (No Changes) ---
